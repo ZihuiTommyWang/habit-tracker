@@ -175,6 +175,46 @@ main{max-width:560px; margin:0 auto; padding:0 14px}
   width:34px; height:34px; flex:none; border:0; border-radius:9px; background:var(--bad-soft);
   color:var(--bad); font-size:15px; cursor:pointer; font-family:inherit;
 }
+/* to-do */
+.tentry{display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap}
+.tentry input[type=text]{
+  flex:1 1 100%; min-width:0; border:1px solid var(--line); background:var(--card); color:var(--text);
+  border-radius:11px; padding:11px 12px; font:15px inherit; font-family:inherit;
+}
+.tentry input[type=date]{
+  flex:1; min-width:0; border:1px solid var(--line); background:var(--card); color:var(--muted);
+  border-radius:11px; padding:9px 10px; font:14px inherit; font-family:inherit;
+}
+.tentry button{
+  border:0; border-radius:11px; padding:0 20px; background:var(--accent); color:#fff;
+  font:600 15px inherit; font-family:inherit; cursor:pointer;
+}
+@media (prefers-color-scheme: dark){ .tentry button{color:#0c130e} }
+.todo{
+  display:flex; align-items:center; gap:11px; background:var(--card); border:1px solid var(--line);
+  border-radius:12px; padding:10px 8px 10px 12px; margin-bottom:6px;
+}
+.todo .chk{
+  width:26px; height:26px; flex:none; border-radius:50%; border:2px solid var(--muted);
+  background:transparent; cursor:pointer; color:transparent; font-size:14px; line-height:1;
+  display:flex; align-items:center; justify-content:center; padding:0; font-family:inherit;
+}
+.todo.donei{opacity:.65}
+.todo.donei .chk{background:var(--accent); border-color:var(--accent); color:#fff}
+@media (prefers-color-scheme: dark){ .todo.donei .chk{color:#0c130e} }
+.todo .ttext{flex:1; min-width:0; font-size:15px; overflow-wrap:anywhere}
+.todo.donei .ttext{text-decoration:line-through; color:var(--muted)}
+.todo .due{font-size:12px; color:var(--muted); white-space:nowrap}
+.todo .due.today{color:var(--accent); font-weight:600}
+.todo .due.late{color:var(--bad); font-weight:600}
+.todo .del{
+  width:32px; height:32px; flex:none; border:0; border-radius:9px; background:transparent;
+  color:var(--muted); font-size:15px; cursor:pointer; font-family:inherit;
+}
+.sechead{
+  color:var(--muted); font-size:13px; font-weight:600; margin:16px 4px 8px;
+  text-transform:uppercase; letter-spacing:.04em;
+}
 </style>
 </head>
 <body>
@@ -184,9 +224,10 @@ main{max-width:560px; margin:0 auto; padding:0 14px}
 </header>
 <main>
   <div class="tabs" role="tablist">
-    <button id="tab-week" class="active" onclick="setView('week')">This Week</button>
+    <button id="tab-week" class="active" onclick="setView('week')">Week</button>
     <button id="tab-history" onclick="setView('history')">History</button>
     <button id="tab-weight" onclick="setView('weight')">Weight</button>
+    <button id="tab-todo" onclick="setView('todo')">To-do</button>
     <button id="tab-edit" onclick="setView('edit')">Edit</button>
   </div>
   <div id="view"></div>
@@ -235,13 +276,14 @@ let state = load();
 function load(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ const s = JSON.parse(raw); if(s && s.habits){ s.weights = s.weights || {}; return s; } }
+    if(raw){ const s = JSON.parse(raw); if(s && s.habits){ s.weights = s.weights || {}; s.todos = s.todos || []; return s; } }
   }catch(e){}
   return {
     habits: SEED.map(([name,target,kind],i)=>({id:'h'+(i+1), name, target, kind, order:i})),
     archived: [],
     weeks: {},
     weights: {},
+    todos: [],
     firstWeek: weekKey(new Date()),
   };
 }
@@ -334,6 +376,26 @@ function delWeight(date){
   delete state.weights[date];
   save(); render();
 }
+function addTodo(){
+  const tEl = document.getElementById('ttext'), dEl = document.getElementById('tdue');
+  const text = tEl.value.trim();
+  if(!text){ tEl.focus(); return; }
+  state.todos.push({id:'t'+Date.now(), text, due: dEl.value || null, done:false, doneAt:null, created:Date.now()});
+  save(); render();
+  const el = document.getElementById('ttext');
+  if(el) el.focus();
+}
+function toggleTodo(id){
+  const t = state.todos.find(t=>t.id===id); if(!t) return;
+  t.done = !t.done;
+  t.doneAt = t.done ? Date.now() : null;
+  save(); render();
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+function delTodo(id){
+  state.todos = state.todos.filter(t=>t.id!==id);
+  save(); render();
+}
 function exportJSON(){
   const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
   const a = document.createElement('a');
@@ -352,6 +414,7 @@ function importJSON(input){
       if(!confirm('Replace all current data with this backup?')) return;
       s.archived = s.archived || [];
       s.weights = s.weights || {};
+      s.todos = s.todos || [];
       s.firstWeek = s.firstWeek || weekKey(new Date());
       state = s; save(); render();
     }catch(e){ alert('That file is not a valid backup.'); }
@@ -364,7 +427,7 @@ function importJSON(input){
 let view = 'week';
 function setView(v){
   view = v;
-  for(const t of ['week','history','weight','edit'])
+  for(const t of ['week','history','weight','todo','edit'])
     document.getElementById('tab-'+t).classList.toggle('active', t===v);
   render();
 }
@@ -377,6 +440,7 @@ function render(){
   if(view==='week') el.innerHTML = renderWeek();
   else if(view==='history') el.innerHTML = renderHistory();
   else if(view==='weight') el.innerHTML = renderWeight();
+  else if(view==='todo') el.innerHTML = renderTodo();
   else el.innerHTML = renderEdit();
 }
 
@@ -528,6 +592,43 @@ function weightChart(entries){
     <text x="${padL}" y="${H-8}" font-size="11" fill="var(--muted)">${fmtShort(entries[0].d)}</text>
     <text x="${W-padR}" y="${H-8}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtShort(entries[entries.length-1].d)}</text>
   </svg>`;
+}
+
+function renderTodo(){
+  const today = dateISO(new Date());
+  let html = `
+    <div class="tentry">
+      <input type="text" id="ttext" placeholder="Add a to-do…" enterkeyhint="done"
+        onkeydown="if(event.key==='Enter')addTodo()">
+      <input type="date" id="tdue" min="${today}" aria-label="due date (optional)">
+      <button onclick="addTodo()">Add</button>
+    </div>`;
+  const active = state.todos.filter(t=>!t.done)
+    .sort((a,b)=> (a.due||'9999') < (b.due||'9999') ? -1 : (a.due||'9999') > (b.due||'9999') ? 1 : a.created-b.created);
+  const done = state.todos.filter(t=>t.done).sort((a,b)=>b.doneAt-a.doneAt);
+  const dueBadge = t => {
+    if(!t.due) return '';
+    if(t.done) return `<span class="due">${fmtShort(t.due)}</span>`;
+    if(t.due < today) return `<span class="due late">overdue · ${fmtShort(t.due)}</span>`;
+    if(t.due === today) return `<span class="due today">due today</span>`;
+    return `<span class="due">due ${fmtShort(t.due)}</span>`;
+  };
+  const row = t => `
+    <div class="todo ${t.done?'donei':''}">
+      <button class="chk" onclick="toggleTodo('${t.id}')" aria-label="${t.done?'mark not done':'mark done'}">✓</button>
+      <span class="ttext">${esc(t.text)}</span>
+      ${dueBadge(t)}
+      <button class="del" onclick="delTodo('${t.id}')" aria-label="delete">✕</button>
+    </div>`;
+  if(!active.length && !done.length)
+    return html + `<div class="empty">Nothing here yet.<br>Add your first to-do above — the due date is optional.</div>`;
+  html += active.map(row).join('');
+  if(!active.length) html += `<div class="empty" style="padding:18px">All done ✓</div>`;
+  if(done.length){
+    html += `<div class="sechead">Done · ${done.length}</div>`;
+    html += done.map(row).join('');
+  }
+  return html;
 }
 
 function renderEdit(){
